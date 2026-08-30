@@ -1,0 +1,26 @@
+node_modules
+client/dist
+.env
+*.log
+.DS_Store
+
+# Python / ML artifacts
+__pycache__
+*.pyc
+.pytest_cache
+ml/data/*.parquet
+.test_credroute.db
+.proof.db
+backend/.pytest_cache
+.coverage
+htmlcov
+benchmarks/results/*.json
+benchmarks/results/*.db
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea

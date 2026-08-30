@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: credroute
+      POSTGRES_PASSWORD: credroute
+      POSTGRES_DB: credroute
+    ports:
+      - "5432:5432"
+    volumes:
+      - credroute-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://credroute:credroute@postgres:5432/credroute
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: dev-secret-change-me
+      CORS_ORIGINS: http://localhost:5000,http://127.0.0.1:5000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./ml:/app/ml
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: celery -A app.workers.tasks.celery_app worker -l info -Q lender_evaluation_queue
+    environment:
+      DATABASE_URL: postgresql+psycopg2://credroute:credroute@postgres:5432/credroute
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+      - api
+
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    profiles: ["legacy"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - credroute-mongo:/data/db
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    restart: unless-stopped
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - credroute-grafana:/var/lib/grafana
+
+volumes:
+  credroute-postgres:
+  credroute-mongo:
+  credroute-grafana:

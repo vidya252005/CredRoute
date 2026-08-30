@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "platform": {
+    "minAge": 21,
+    "maxAge": 60,
+    "minMonthlyIncome": 15000,
+    "maxFoir": 0.6,
+    "maxAmountIncomeMultiple": 24,
+    "minCibilForPrimePath": 650
+  },
+  "decision": {
+    "rejectDefaultProbabilityGte": 0.35,
+    "rejectFraudProbabilityGte": 0.25,
+    "reviewDefaultProbabilityGte": 0.18,
+    "reviewFraudProbabilityGte": 0.15
+  },
+  "fraud": {
+    "stackingWindowHours": 24,
+    "stackingLimit": 20,
+    "velocityPanLimit": 3,
+    "highRiskAgeBounds": [21, 23]
+  },
+  "altData": {
+    "cibilThinFileBelow": 650,
+    "approveScoreGte": 0.7,
+    "reviewScoreGte": 0.55,
+    "minSimTenureMonths": 12,
+    "minCashflowRatio": 0.7,
+    "maxObligationRatio": 0.5
+  },
+  "limitLadder": {
+    "firstLoanMin": 15000,
+    "firstLoanMax": 50000,
+    "stepUp": 20000,
+    "maxLimit": 150000,
+    "incomeMultipleCap": 4
+  }
+}

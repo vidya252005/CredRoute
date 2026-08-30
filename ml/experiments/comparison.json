@@ -1,0 +1,27 @@
+{
+  "baseline": {
+    "model": "baseline_logistic_regression",
+    "rocAuc": 0.8303,
+    "gini": 0.6605,
+    "ks": 0.5195,
+    "prAuc": 0.4711,
+    "accuracy": 0.7604,
+    "f1": 0.472,
+    "precision": 0.344,
+    "recall": 0.7516,
+    "trainedAt": "2026-08-30T15:51:45.920300+00:00"
+  },
+  "gradient_boosting": {
+    "model": "gradient_boosting",
+    "rocAuc": 0.8275,
+    "gini": 0.655,
+    "ks": 0.5255,
+    "prAuc": 0.4615,
+    "accuracy": 0.8713,
+    "f1": 0.3607,
+    "precision": 0.6173,
+    "recall": 0.2547,
+    "trainedAt": "2026-08-30T15:52:00.389579+00:00"
+  },
+  "activeModel": "gradient_boosting"
+}

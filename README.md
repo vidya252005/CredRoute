@@ -1,124 +1,272 @@
 # CredRoute
 
-CredRoute is an experimental digital lending marketplace built with the MERN stack. A customer submits a loan request, the decision engine evaluates baseline eligibility, runs a lightweight risk model, queries fictional lender integrations in parallel, ranks the returned offers, and can route the application to the best match.
+**Digital Lending Marketplace & Credit Decisioning Platform**
 
-The mock lenders are intentionally fictional: `AxisBankMock`, `IDFCMock`, `LenderBMock`, and `LenderCMock`. This project does not represent or imitate the internal architecture of any real company.
+A production-style fintech portfolio project: eligibility engine, ML credit scoring, fraud detection, lender orchestration, and offer ranking — built for Indian retail lending workflows.
+
+> Mock lenders only · Synthetic data only · No real banks, NBFCs, or credit bureaus.
+
+---
+
+## Why this project (for recruiters)
+
+This is not a CRUD app with an ML label. It demonstrates how a **digital lending marketplace** actually works:
+
+| Capability | Implementation |
+|------------|----------------|
+| **Credit decisioning** | Eligibility → ML risk → fraud → Approve/Review/Reject decision engine |
+| **ML pipeline** | Train/compare models, ONNX export, SHAP explainability, FinBERT text signal |
+| **Lender orchestration** | Parallel mock lender mesh, circuit breaker, retries, weighted offer ranking |
+| **Production patterns** | JWT auth, PostgreSQL, Redis cache, idempotency keys, Alembic migrations, audit events |
+| **Ops & monitoring** | Admin console, ML metrics dashboard, feature drift alerts, Prometheus scaffold |
+| **India-specific logic** | CIBIL, PAN, FOIR, city tier, thin-file segment, stacking fraud rules |
+
+**Model card:** [`ml/MODEL_CARD.md`](ml/MODEL_CARD.md) — dataset, metrics, limitations, retraining guide.
+
+---
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Client
+        UI[React SPA]
+    end
+
+    subgraph Gateway
+        Express[Express Gateway :5000]
+    end
+
+    subgraph API["FastAPI + PostgreSQL + Redis"]
+        Auth[JWT Auth]
+        Elig[Eligibility Engine]
+        Risk[ML Risk + Fraud]
+        Decision[Decision Engine]
+        Lenders[Lender Mesh + Circuit Breaker]
+        Rank[Offer Ranking]
+        Admin[Admin / ML Metrics]
+    end
+
+    subgraph ML["ML Pipeline"]
+        Train[train_models.py]
+        Predict[predict.py + SHAP]
+        Indian[Indian Synthetic Dataset]
+    end
+
+    UI --> Express
+    Express -->|USE_FASTAPI=true| Auth
+    Auth --> Elig --> Risk --> Decision
+    Decision --> Lenders --> Rank
+    Risk --> Predict
+    Train --> Indian
+    Train --> Predict
+    Admin --> Predict
+```
+
 ```text
-Client (React)
+React client (port 5000)
       │
       ▼
-Express API Gateway
+Express gateway (proxy when USE_FASTAPI=true)
       │
-      ├── Eligibility Engine (deterministic rules)
-      ├── Risk Model (Hugging Face dataset → ONNX, default / fraud probabilities)
-      ├── Lender Simulator (parallel mock integrations)
-      └── Offer Ranking Engine
+      ▼
+FastAPI + PostgreSQL + Redis + Celery
       │
-      ├── MongoDB (users, applications, offers, events)
-      └── Redis (cache, rate limiting, idempotency, BullMQ queue)
+      ├── Eligibility engine (configurable lender policies)
+      ├── Risk engine (gradient boosting via ml/predict.py)
+      ├── Alternative-data thin-file score + credit-line ladder
+      ├── Personalized amount / APR + consent / adverse action
+      ├── Fraud engine (PAN velocity, stacking)
+      ├── Decision engine (approve / review / reject)
+      ├── Lender provider abstraction + circuit breaker
+      ├── Offer ranking
+      ├── JWT auth (register/login)
+      ├── Idempotency keys
+      └── Application state machine + audit events
 ```
 
-## Features
+OpenAPI docs: `http://localhost:8000/docs`
 
-- Deterministic eligibility checks (age, income, employment, credit score, obligations)
-- ML-inspired risk scoring trained on Hugging Face Give Me Some Credit data (ROC-AUC ~0.79)
-- Parallel mock lender calls with timeout, retry, and circuit breaker
-- Offer ranking: `0.35×approval + 0.25×interest + 0.20×amount_match + 0.10×success + 0.10×journey`
-- Idempotency via `Idempotency-Key` header
-- Redis caching for lender rules and eligibility results
-- Rate limiting (20 requests/minute/IP by default)
-- Application routing to the top-ranked lender
-- Prometheus metrics at `/api/metrics?format=prometheus`
-- BullMQ worker for async evaluation (`npm run worker`)
+---
 
-## Run locally
-
-1. Copy `.env.example` to `.env`
-2. Start infrastructure:
-
-   ```bash
-   docker compose up -d mongodb redis
-   ```
-
-3. Install and seed:
-
-   ```bash
-   npm install
-   pip install -r ml/requirements.txt
-   npm run ml:setup
-   npm run seed
-   npm run dev
-   ```
-
-4. Open `http://localhost:5000`
-
-Use `npm run dev` for local development. Use `npm run start` only for production-style runs (it builds the frontend first).
-
-### Common startup issues
-
-| Problem | Fix |
-|---------|-----|
-| `ENOENT ... client/dist/index.html` | You ran production mode without a build. Use `npm run dev`, or run `npm run build` before `npm run start`. |
-| `Redis is unavailable` / `ECONNREFUSED 127.0.0.1:6379` | Start Redis with `docker compose up -d redis` and set `REDIS_URL=redis://127.0.0.1:6379`, or leave `REDIS_URL` blank in `.env`. |
-| Port already in use | Stop old Node processes or run `PORT=5001 npm run dev`. |
-
-Optional observability stack:
+## Quick start
 
 ```bash
-docker compose up -d prometheus grafana
+docker compose up -d postgres redis api worker
+npm install
+pip install -r backend/requirements.txt
+npm run ml:indian          # generate Indian synthetic data + train model
+npm run dev                # React UI + Express gateway on :5000
 ```
 
-Grafana: `http://localhost:3000` (admin/admin)
+Compose starts PostgreSQL, Redis, FastAPI (`:8000`), and the worker. It does **not** serve the UI. Keep `npm run dev` running on the host for `http://localhost:5000`.
 
-## API
+To run FastAPI on the host instead of Compose:
+
+```bash
+docker compose up -d postgres redis
+npm run dev:api
+npm run dev
+```
+
+Open `http://localhost:5000`
+
+### Environment
+
+Copy `.env.example` to `.env`. Key flags:
+
+- `USE_FASTAPI=true` — proxy `/api` to FastAPI (recommended)
+- `FASTAPI_URL=http://127.0.0.1:8000`
+- `DATABASE_URL=postgresql+psycopg2://credroute:credroute@127.0.0.1:5432/credroute`
+
+Set `USE_FASTAPI=false` to fall back to the legacy Node/MongoDB API.
+
+**Troubleshooting:** `404` on `/api/auth/login` means the Express gateway is serving the legacy Node API. Ensure `.env` has `USE_FASTAPI=true`, restart `npm run dev`, and start FastAPI:
+
+```bash
+docker compose up -d postgres redis api
+curl http://127.0.0.1:8000/api/health
+```
+
+---
+
+## Thin-file / alternative data (Branch-shaped loop)
+
+When CIBIL is missing or below 650, CredRoute does **not** hard-reject on the bureau PD model. It scores:
+
+- Cash-flow (bank balance vs income, existing EMIs)
+- Synthetic device/SIM tenure proxy (deterministic from PAN — **not** real SMS or contacts)
+- Repeat repayment history on the PAN
+
+A first loan is capped (₹15k–₹50k). **Simulate on-time repayment** in the result panel to raise the limit. Rejects return three borrower-facing adverse-action reasons plus a consent ledger.
+
+Demo: use the **Thin-file gig worker** preset.
+
+## Demo flow (2 minutes)
+
+1. Landing page → **Apply now**
+2. Submit a loan (Prime for bureau path, **Thin-file gig worker** for alt-data + starter limit)
+3. Review eligibility, alt-data score, personalized amount/APR, SHAP, decision, lender mesh
+4. Route to recommended lender, then **Simulate on-time repayment** to raise the credit line
+5. **Admin** tab → ML metrics, applications table, drift alerts, circuit breakers
+
+Admin credentials: `admin@credroute.demo` / `changeme123`
+
+---
+
+## ML pipeline
+
+### Recommended: Indian synthetic dataset
+
+```bash
+npm run ml:indian    # 100k synthetic Indian profiles + train
+```
+
+Trains on CIBIL/income/FOIR distributions aligned with the applicant form — not the legacy US benchmark.
+
+### Legacy US benchmark
+
+```bash
+npm run ml:train:us
+```
+
+### Metrics logged after training
+
+ROC-AUC, **Gini**, **KS**, precision, recall, F1, accuracy — see [`ml/MODEL_CARD.md`](ml/MODEL_CARD.md).
+
+Artifacts:
+- `ml/models/credit_risk_xgb.joblib` — gradient boosting (active model)
+- `ml/models/credit_risk.onnx` — logistic regression baseline
+- `ml/models/metadata.json` — metrics + active model
+- `ml/experiments/comparison.json` — model comparison
+
+Risk inference fuses structured ML (85%) + FinBERT/keyword text signal (15%) + SHAP explainability.
+
+---
+
+## API (FastAPI)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/lenders` | List mock lenders |
-| GET | `/api/applications` | Recent applications |
-| GET | `/api/metrics` | JSON metrics |
-| GET | `/api/metrics?format=prometheus` | Prometheus scrape endpoint |
-| POST | `/api/applications/evaluate` | Evaluate and rank offers |
-| POST | `/api/applications/:id/route` | Route to best lender |
+| POST | `/api/auth/register` | Create borrower account |
+| POST | `/api/auth/login` | JWT login |
+| POST | `/api/applications/evaluate` | Full pipeline: eligibility + risk + lenders + ranking |
+| POST | `/api/risk/predict` | Risk score without persisting application |
+| POST | `/api/applications/{id}/route` | Route to top-ranked offer |
+| POST | `/api/applications/{id}/repay` | Simulate on-time repayment and raise credit line |
+| GET | `/api/applications` | Recent applications (PAN masked) |
+| GET | `/api/admin/ml/metrics` | Model evaluation dashboard |
+| GET | `/api/metrics` | Platform metrics (cache hit rate, latency) |
+| GET | `/metrics` | Prometheus scrape |
+| GET | `/api/health` | Liveness + Postgres/Redis |
+| GET | `/api/borrowers/{pan}/loan-history` | Warehouse loan-history join (indexed) |
 
-### Evaluate request
+---
 
-```json
-{
-  "name": "Aarav Mehta",
-  "age": 29,
-  "monthlyIncome": 65000,
-  "employmentType": "salaried",
-  "creditScore": 760,
-  "monthlyObligations": 12000,
-  "amount": 100000,
-  "tenureMonths": 12
-}
-```
-
-Send an `Idempotency-Key` header to prevent duplicate applications.
-
-## ML risk model
-
-CredRoute trains a logistic regression classifier on the Hugging Face dataset `inria-soda/tabular-benchmark` (`clf_num_credit`, Give Me Some Credit). The model predicts 90+ day delinquency probability and is exported to ONNX for inference.
-
-```bash
-pip install -r ml/requirements.txt
-npm run ml:setup
-```
-
-If the model is unavailable, the API falls back to a transparent heuristic scorer.
-
-## Tests
+## Tests, coverage, and proof pack
 
 ```bash
 npm test
+npm run test:api          # pytest (coverage if pytest-cov is installed)
+npm run bench             # p50/p95, cache, fraud, decisioning, warehouse indexes
+npm run bench:full        # 100k borrowers / 500k loans / 1M transactions + 100/250/500 concurrent
 ```
 
-## Demo mode
+CI runs unit/integration tests, coverage, frontend build, and `bench --mode quick` on every push.
 
-If MongoDB or Redis are unavailable, the server starts in in-memory demo mode so the decision flow can still be inspected.
+Measured numbers: [`docs/PROOF.md`](docs/PROOF.md) · last harness table: [`benchmarks/results/PROOF.md`](benchmarks/results/PROOF.md).
+
+Locust (API up on :8000):
+
+```bash
+npm run load
+```
+
+---
+
+## Deploy (portfolio demo)
+
+**Option A — Railway / Render**
+
+1. Deploy `backend/Dockerfile` as API service
+2. Add PostgreSQL + Redis add-ons
+3. Set env: `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORS_ORIGINS`
+4. Build frontend: `npm run build` → serve static via Express or CDN
+
+**Option B — Docker Compose (VPS)**
+
+```bash
+docker compose up -d postgres redis api worker
+npm run build && NODE_ENV=production npm start
+```
+
+`docker compose up -d` alone does not serve the React app on port 5000. Run the Express gateway (`npm start` or `npm run dev`) on the host, or put a static/nginx container in front of `client/dist`.
+
+Add a 60–90 second Loom walkthrough link in your resume/README — recruiters often won't clone.
+
+---
+
+## Security notes (portfolio)
+
+- PAN masked in API responses (`ABCXX1234X`)
+- JWT auth for admin routes
+- Public evaluate endpoint (intentional sandbox for demo)
+- Change default admin password and `JWT_SECRET` before any public deploy
+
+---
+
+## What this demonstrates
+
+- Borrower onboarding and loan application flow
+- Eligibility evaluation with lender policies as data
+- ML credit-risk scoring with explainability
+- Fraud detection (velocity, stacking)
+- Decision engine with audit trail
+- Parallel mock lender integration with circuit breaker
+- Offer comparison and weighted ranking
+- Idempotency, PostgreSQL persistence, Redis cache
+- Model monitoring and drift alerts
+
+## Legacy stack
+
+The original MERN implementation remains under `server/` for reference. Use `USE_FASTAPI=false` to enable it. **FastAPI is the recommended path for interviews.**

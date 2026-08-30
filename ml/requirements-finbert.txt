@@ -1,0 +1,4 @@
+# Optional — only needed for live FinBERT-India inference.
+# Keyword fallback works without these packages.
+# Note: torch wheels may be unavailable on some Python versions (e.g. 3.13).
+transformers>=4.44.0
