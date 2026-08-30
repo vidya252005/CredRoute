@@ -8,7 +8,7 @@ A production-style fintech portfolio project: eligibility engine, ML credit scor
 
 ---
 
-## Why this project (for recruiters)
+## Why this project
 
 This is not a CRUD app with an ML label. It demonstrates how a **digital lending marketplace** actually works:
 
