@@ -73,11 +73,15 @@ def predict_structured(features: dict[str, float]) -> tuple[float, str]:
     active = (METADATA or {}).get("activeModel", "baseline_logistic_regression")
 
     if active in ("xgboost", "gradient_boosting") and XGB_BUNDLE is not None:
-        names = XGB_BUNDLE["features"]
-        frame = pd.DataFrame([[features[name] for name in names]], columns=names)
-        imputed = XGB_BUNDLE["imputer"].transform(frame)
-        probability = float(XGB_BUNDLE["model"].predict_proba(imputed)[0][1])
-        return max(0.0, min(1.0, probability)), XGB_BUNDLE.get("modelKind", active)
+        try:
+            names = XGB_BUNDLE["features"]
+            frame = pd.DataFrame([[features[name] for name in names]], columns=names)
+            imputed = XGB_BUNDLE["imputer"].transform(frame)
+            probability = float(XGB_BUNDLE["model"].predict_proba(imputed)[0][1])
+            return max(0.0, min(1.0, probability)), XGB_BUNDLE.get("modelKind", active)
+        except Exception:
+            # sklearn pickle from an older train can fail on a newer runtime; use ONNX.
+            pass
 
     if SESSION is None:
         raise RuntimeError("No structured risk model available.")
