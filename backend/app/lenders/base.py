@@ -3,6 +3,8 @@ import time
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
+from app.resilience.bulkhead import lender_semaphore
+from app.resilience.retry import RetryPolicy
 from app.services.circuit_breaker import get_circuit_state, is_circuit_open, record_failure, record_success
 from app.services.lender_policy import check_hard_policy_gates, normalize_lender_policy, resolve_cibil
 from app.services.profile import calculate_foir, lender_fit_score
@@ -107,7 +109,12 @@ async def query_lender(provider: MockLenderProvider, lender: dict, input_data: d
         raise RuntimeError("circuit breaker open")
 
     last_error = None
-    for attempt in range(1, settings.lender_max_retries + 1):
+    retry = RetryPolicy(
+        max_attempts=settings.lender_max_retries,
+        base_delay_ms=settings.lender_retry_base_delay_ms,
+        max_delay_ms=settings.lender_retry_max_delay_ms,
+    )
+    for attempt in range(1, retry.max_attempts + 1):
         try:
             result = await asyncio.wait_for(
                 provider.check_eligibility(lender, input_data, profile),
@@ -128,25 +135,28 @@ async def query_lender(provider: MockLenderProvider, lender: dict, input_data: d
             return {"status": "success", "lenderCode": lender["code"], "latencyMs": latency_ms, "offer": offer}
         except Exception as error:  # noqa: BLE001
             last_error = error
-            if attempt < settings.lender_max_retries:
-                await asyncio.sleep(0.04 * attempt)
+            if attempt < retry.max_attempts:
+                await retry.sleep(attempt)
     record_failure(lender["code"])
     raise last_error or RuntimeError("lender unavailable")
 
 
 async def query_lenders_in_parallel(lenders: list[dict], input_data: dict, risk: dict, profile: dict) -> list[dict]:
+    semaphore = lender_semaphore()
+
     async def run(lender: dict) -> dict:
-        provider = MockLenderProvider(lender["code"])
-        started = time.time()
-        try:
-            return await query_lender(provider, lender, input_data, risk, profile)
-        except Exception as error:  # noqa: BLE001
-            return {
-                "status": "failed",
-                "lenderCode": lender["code"],
-                "latencyMs": int((time.time() - started) * 1000),
-                "message": str(error),
-                "circuit": get_circuit_state(lender["code"]).__dict__,
-            }
+        async with semaphore:
+            provider = MockLenderProvider(lender["code"])
+            started = time.time()
+            try:
+                return await query_lender(provider, lender, input_data, risk, profile)
+            except Exception as error:  # noqa: BLE001
+                return {
+                    "status": "failed",
+                    "lenderCode": lender["code"],
+                    "latencyMs": int((time.time() - started) * 1000),
+                    "message": str(error),
+                    "circuit": get_circuit_state(lender["code"]).__dict__,
+                }
 
     return await asyncio.gather(*[run(lender) for lender in lenders])

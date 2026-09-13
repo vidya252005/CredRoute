@@ -135,3 +135,39 @@ def test_health_and_prometheus(client):
 def test_loan_history_missing_pan(client):
     response = client.get("/api/borrowers/ZZZZZ9999Z/loan-history")
     assert response.status_code == 404
+
+
+def test_evaluate_exposes_explanation_and_routing(client):
+    created = client.post("/api/applications/evaluate", json=PRIME_APPLICANT)
+    assert created.status_code == 200
+    application_id = created.json()["id"]
+
+    detail = client.get(f"/api/applications/{application_id}")
+    assert detail.status_code == 200
+    assert detail.json()["id"] == application_id
+
+    explanation = client.get(f"/api/applications/{application_id}/decision/explanation")
+    assert explanation.status_code == 200
+    body = explanation.json()
+    assert body["applicationId"] == int(application_id)
+    assert body["decision"] in ("approve", "review", "reject")
+    assert "lenders" in body
+    assert body.get("policyVersion")
+
+    routing = client.get(f"/api/applications/{application_id}/routing")
+    assert routing.status_code == 200
+    assert routing.json()["applicationId"] == int(application_id)
+    assert routing.json()["strategy"]
+
+
+def test_idempotency_conflict_on_payload_mismatch(client):
+    key = str(uuid.uuid4())
+    headers = {"Idempotency-Key": key}
+    first = client.post("/api/applications/evaluate", json=PRIME_APPLICANT, headers=headers)
+    assert first.status_code == 200
+    conflict = client.post(
+        "/api/applications/evaluate",
+        json={**PRIME_APPLICANT, "amount": 250000},
+        headers=headers,
+    )
+    assert conflict.status_code == 409

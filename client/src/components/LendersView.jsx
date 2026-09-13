@@ -5,11 +5,10 @@ export default function LendersView({ lenders }) {
   return (
     <section className="lenders-layout">
       <header className="hero hero--compact">
-        <p className="hero__eyebrow">Partner mesh</p>
-        <h2>Mock lenders tuned for India&apos;s credit segments</h2>
+        <h2>Partners on this demo</h2>
         <p className="hero__lede">
-          Each partner serves a distinct borrower profile — prime salaried, near-prime, thin-file,
-          and tier-2/3 co-lending. All responses are simulated for demo purposes.
+          Each mock lender serves a different Indian segment: prime salaried, near-prime, thin-file,
+          or tier-2/3 co-lending.
         </p>
       </header>
 

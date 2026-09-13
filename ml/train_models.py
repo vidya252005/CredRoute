@@ -17,7 +17,6 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from datasets import load_dataset
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -34,6 +33,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
+
+from dataset_io import read_table, write_table
 
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "models"
@@ -98,20 +99,22 @@ def load_boost_classifier():
 
 
 def load_us_credit_data() -> pd.DataFrame:
+    from datasets import load_dataset
+
     dataset = load_dataset(HF_DATASET, HF_CONFIG, split="train")
     return dataset.to_pandas()
 
 
 def load_indian_credit_data() -> pd.DataFrame:
-    if not INDIAN_DATA_PATH.exists():
+    try:
+        return read_table(INDIAN_DATA_PATH)
+    except FileNotFoundError:
         from generate_indian_dataset import generate_dataset
 
         print(f"Indian dataset not found — generating {INDIAN_DATA_PATH}")
         frame = generate_dataset()
-        INDIAN_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(INDIAN_DATA_PATH, index=False)
+        write_table(frame, INDIAN_DATA_PATH)
         return frame
-    return pd.read_parquet(INDIAN_DATA_PATH)
 
 
 def kolmogorov_smirnov(labels: np.ndarray, probabilities: np.ndarray) -> float:

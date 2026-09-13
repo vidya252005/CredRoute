@@ -11,7 +11,19 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.db.session import get_db
 from app.models.entities import User, UserRole
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
-from app.services.application_service import evaluate_application, normalize_input, route_application, score_application, serialize_application, serialize_lender_catalog, simulate_repayment
+from app.engines.consent import ConsentService
+from app.services.application_service import (
+    evaluate_application,
+    explain_decision,
+    get_application,
+    get_routing_decision,
+    normalize_input,
+    route_application,
+    score_application,
+    serialize_application,
+    serialize_lender_catalog,
+    simulate_repayment,
+)
 from app.services.profile import is_valid_pan
 from app.models.entities import BorrowerProfile, LoanApplication, LoanOffer, Lender
 from app.services.application_service import lender_to_dict
@@ -60,12 +72,7 @@ def predict_risk(body: dict, db: Session = Depends(get_db)):
         raise AppError("VALIDATION_ERROR", "name is required.", 400)
     if not is_valid_pan(input_data["pan"]):
         raise AppError("VALIDATION_ERROR", "pan must match format ABCDE1234F.", 400)
-    if not input_data["consent_alt_data"]:
-        raise AppError(
-            "CONSENT_REQUIRED",
-            "Consent is required to use cash-flow and device-proxy signals for underwriting.",
-            400,
-        )
+    ConsentService().require_alt_data(bool(input_data.get("consent_alt_data")))
     financial_notes = body.get("financialNotes") or body.get("financialText")
     scored = score_application(input_data, financial_notes, db, persist_credit_line=False)
     return {
@@ -111,6 +118,21 @@ def repay(application_id: int, db: Session = Depends(get_db)):
         return simulate_repayment(db, application_id)
     except ValueError as error:
         raise AppError("REPAY_FAILED", str(error), 400) from error
+
+
+@router.get("/applications/{application_id}")
+def get_application_detail(application_id: int, db: Session = Depends(get_db)):
+    return get_application(db, application_id)
+
+
+@router.get("/applications/{application_id}/routing")
+def get_application_routing(application_id: int, db: Session = Depends(get_db)):
+    return get_routing_decision(db, application_id)
+
+
+@router.get("/applications/{application_id}/decision/explanation")
+def get_application_explanation(application_id: int, db: Session = Depends(get_db)):
+    return explain_decision(db, application_id)
 
 
 @router.get("/applications")

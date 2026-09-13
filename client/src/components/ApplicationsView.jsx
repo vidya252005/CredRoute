@@ -7,11 +7,10 @@ export default function ApplicationsView({ applications, onSelect, selectedId })
     return (
       <section className="panel panel--wide panel--empty">
         <header className="panel__header">
-          <p className="panel__eyebrow">Application registry</p>
           <h2>No applications yet</h2>
         </header>
         <p className="panel__lede">
-          Run an evaluation from the workspace to populate this ledger with routed applications.
+          Apply from the workspace to see evaluations here.
         </p>
       </section>
     );
@@ -23,7 +22,6 @@ export default function ApplicationsView({ applications, onSelect, selectedId })
     <section className="applications-layout">
       <div className="panel panel--table">
         <header className="panel__header">
-          <p className="panel__eyebrow">Application registry</p>
           <h2>Recent evaluations</h2>
         </header>
 
@@ -75,9 +73,8 @@ export default function ApplicationsView({ applications, onSelect, selectedId })
       {selected && (
         <aside className="panel panel--detail">
           <header className="panel__header">
-            <p className="panel__eyebrow">Selected application</p>
             <h2>{selected.applicant?.name}</h2>
-            <p className="panel__meta mono">{formatDate(selected.createdAt)}</p>
+            <p className="panel__meta">{formatDate(selected.createdAt)}</p>
           </header>
 
           <dl className="detail-list">
@@ -103,7 +100,7 @@ export default function ApplicationsView({ applications, onSelect, selectedId })
             <div className="mini-offers">
               <h3>Top offer</h3>
               <p>
-                {selected.offers[0].lenderName} · {selected.offers[0].interestRate}% · EMI{" "}
+                {selected.offers[0].lenderName}, {selected.offers[0].interestRate}% APR, EMI{" "}
                 {money(selected.offers[0].monthlyPayment)}
               </p>
             </div>

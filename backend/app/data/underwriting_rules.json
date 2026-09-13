@@ -28,6 +28,18 @@
     "minCashflowRatio": 0.7,
     "maxObligationRatio": 0.5
   },
+  "routing": {
+    "strategy": "balanced",
+    "maxConcurrency": 10,
+    "weights": {
+      "approvalProbability": 0.3,
+      "interestScore": 0.2,
+      "amountMatch": 0.15,
+      "profileFit": 0.2,
+      "lenderSuccessRate": 0.1,
+      "journeyScore": 0.05
+    }
+  },
   "limitLadder": {
     "firstLoanMin": 15000,
     "firstLoanMax": 50000,

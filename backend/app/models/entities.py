@@ -120,7 +120,9 @@ class IdempotencyKey(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     response: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -148,3 +150,84 @@ class ConsentRecord(Base):
     granted: Mapped[bool] = mapped_column(Boolean, default=True)
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RiskAssessment(Base):
+    __tablename__ = "risk_assessments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
+    default_probability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_band: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FraudAssessment(Base):
+    __tablename__ = "fraud_assessments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
+    fraud_probability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    flags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DecisionAudit(Base):
+    __tablename__ = "decision_audits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    routing_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    feature_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    lender_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    final_decision: Mapped[str] = mapped_column(String(32))
+    reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    explainability: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LenderAttemptRecord(Base):
+    __tablename__ = "lender_attempt_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
+    lender_code: Mapped[str] = mapped_column(String(64), index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(30))
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RoutingDecision(Base):
+    __tablename__ = "routing_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
+    selected_offer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    selected_lender: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    strategy_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RoutingCandidate(Base):
+    __tablename__ = "routing_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    decision_id: Mapped[int] = mapped_column(ForeignKey("routing_decisions.id"), index=True)
+    lender_code: Mapped[str] = mapped_column(String(64))
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rejection_reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+

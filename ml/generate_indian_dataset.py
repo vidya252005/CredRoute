@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from dataset_io import write_table
+
 ROOT = Path(__file__).resolve().parent
 OUTPUT_PATH = ROOT / "data" / "indian_credit_synthetic.parquet"
 
@@ -124,8 +126,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     frame = generate_dataset(args.rows, args.seed)
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(OUTPUT_PATH, index=False)
+    written = write_table(frame, OUTPUT_PATH)
 
     default_rate = frame[TARGET_COLUMN].mean()
     summary = {
@@ -138,7 +139,7 @@ def main() -> None:
     (OUTPUT_PATH.parent / "indian_credit_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
-    print(f"Wrote {len(frame)} rows to {OUTPUT_PATH} (default rate {default_rate:.2%})")
+    print(f"Wrote {len(frame)} rows to {written} (default rate {default_rate:.2%})")
 
 
 if __name__ == "__main__":

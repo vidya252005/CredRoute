@@ -87,19 +87,19 @@ export default function AdminView({ onRefreshLenders }) {
         <>
           <section className="admin-metrics">
             <article className="panel">
-              <p className="panel__eyebrow">Applications</p>
+              <p className="ledger-card__label">Applications</p>
               <strong className="mono">{metrics.applications}</strong>
             </article>
             <article className="panel">
-              <p className="panel__eyebrow">Offers</p>
+              <p className="ledger-card__label">Offers</p>
               <strong className="mono">{metrics.offers}</strong>
             </article>
             <article className="panel">
-              <p className="panel__eyebrow">Lender success</p>
+              <p className="ledger-card__label">Lender success</p>
               <strong className="mono">{percent(metrics.lenderSuccessRate)}</strong>
             </article>
             <article className="panel">
-              <p className="panel__eyebrow">Users</p>
+              <p className="ledger-card__label">Users</p>
               <strong className="mono">{metrics.users}</strong>
             </article>
           </section>
@@ -116,7 +116,7 @@ export default function AdminView({ onRefreshLenders }) {
               <div className="admin-metrics">
                 {Object.entries(mlMetrics.models || {}).map(([name, stats]) => (
                   <article className="panel" key={name}>
-                    <p className="panel__eyebrow">{name}</p>
+                    <p className="ledger-card__label">{name}</p>
                     <ul className="admin-list admin-list--compact">
                       <li><span>ROC-AUC</span><span className="mono">{stats.rocAuc}</span></li>
                       {stats.gini != null && <li><span>Gini</span><span className="mono">{stats.gini}</span></li>}

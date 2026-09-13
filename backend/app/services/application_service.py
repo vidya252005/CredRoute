@@ -1,42 +1,29 @@
-import hashlib
-import time
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.cache import cache_get, cache_set
 from app.core.exceptions import AppError
 from app.core.privacy import mask_pan
-from app.lenders.base import query_lenders_in_parallel
 from app.models.entities import (
     ApplicationEvent,
     ApplicationStatus,
     BorrowerCreditLine,
     BorrowerProfile,
     ConsentRecord,
-    IdempotencyKey,
+    DecisionAudit,
     Lender,
     LoanApplication,
     LoanOffer,
+    RoutingDecision,
 )
-from app.services.alt_data import score_alt_data
-from app.services.compliance import adverse_action, build_consent
-from app.services.credit_line import (
-    get_or_create_credit_line,
-    record_on_time_repayment,
-    record_origination,
-    serialize_line,
-    starter_limit,
-    stepped_limit,
-)
-from app.services.decision_engine import evaluate_decision
-from app.services.eligibility import evaluate_eligibility
-from app.services.fraud import evaluate_fraud
-from app.services.model_monitoring import evaluate_drift
-from app.services.offer_pricing import price_offer
-from app.services.offer_ranking import rank_offers
-from app.services.profile import classify_profile
-from app.services.risk import calculate_risk
-from app.services.state_machine import assert_transition
+from app.domain.context import DecisionContext
+from app.engines.consent import ConsentService
+from app.engines.decision import DecisionEngine
+from app.routing.engine import RoutingEngine
+from app.services.audit import persist_decision_audit
+from app.services.compliance import adverse_action
+from app.services.credit_line import record_on_time_repayment, record_origination, serialize_line
+from app.services.idempotency import IdempotencyService
+from app.services.state_machine import ApplicationStateMachine
 
 STATUS_MAP = {
     "ineligible": ApplicationStatus.ineligible,
@@ -182,125 +169,18 @@ def score_application(
     db: Session,
     persist_credit_line: bool = True,
 ) -> dict:
-    started = time.perf_counter()
-    profile = classify_profile(input_data)
-    device_overrides = {
-        "androidApiLevel": input_data.get("android_api_level"),
-        "simTenureMonths": input_data.get("sim_tenure_months"),
-        "rooted": input_data.get("rooted"),
-    }
-
-    notes_token = hashlib.sha256((financial_notes or "").encode("utf-8")).hexdigest()[:16]
-    cache_key = (
-        f"risk:{input_data['pan']}:{input_data['amount']}:{input_data['tenure_months']}:"
-        f"{input_data['monthly_income']}:{input_data.get('cibil_score')}:"
-        f"{input_data['existing_emis']}:{input_data['income_type']}:"
-        f"{input_data.get('bank_statement_avg_balance')}:{input_data.get('city_tier')}:"
-        f"{notes_token}"
-    )
-    cached = cache_get(cache_key)
-    if cached:
-        risk = cached
-    else:
-        risk = calculate_risk(input_data, financial_notes)
-        cache_set(cache_key, risk, 120)
-
-    existing_line = (
-        db.query(BorrowerCreditLine).filter(BorrowerCreditLine.pan == input_data["pan"]).first()
-        if db is not None
-        else None
-    )
-    credit_preview = (
-        serialize_line(existing_line)
-        if existing_line
-        else {"firstLoan": True, "onTimeRepayments": 0, "currentLimit": 0, "nextLimit": 0, "originatedCount": 0}
-    )
-    alt_data = score_alt_data(input_data, credit_preview, device_overrides)
-
-    if persist_credit_line and db is not None:
-        line = get_or_create_credit_line(
-            db, input_data["pan"], input_data["monthly_income"], alt_data["altDataScore"]
-        )
-        if line.originated_count == 0:
-            line.current_limit = starter_limit(input_data["monthly_income"], alt_data["altDataScore"])
-            line.starter_limit = line.current_limit
-            line.next_limit = stepped_limit(line.starter_limit, 1, input_data["monthly_income"])
-        credit = serialize_line(line)
-    elif existing_line:
-        credit = serialize_line(existing_line)
-    else:
-        base = starter_limit(input_data["monthly_income"], alt_data["altDataScore"])
-        credit = {
-            "firstLoan": True,
-            "currentLimit": base,
-            "nextLimit": stepped_limit(base, 1, input_data["monthly_income"]),
-            "onTimeRepayments": 0,
-            "originatedCount": 0,
-        }
-
-    priced = price_offer(input_data, risk, alt_data, credit, profile["segment"])
-    priced_input = {
-        **input_data,
-        "amount": priced["offeredAmount"],
-        "tenure_months": priced["tenureMonths"],
-    }
-    eligibility = evaluate_eligibility(
-        input_data,
-        offered_amount=priced["offeredAmount"],
-        offered_tenure=priced["tenureMonths"],
-    )
-    fraud = evaluate_fraud(db, priced_input, risk)
-    risk = {
-        **risk,
-        "fraud": fraud,
-        "fraudProbability": fraud["fraudProbability"],
-        "drift": evaluate_drift(input_data),
-        "altData": alt_data,
-        "creditLine": credit,
-        "personalizedOffer": priced,
-    }
-    decision = evaluate_decision(eligibility, risk, fraud, alt_data)
-    consent = build_consent(input_data, alt_data, bool(input_data.get("consent_alt_data")))
-    action = adverse_action(decision, eligibility, alt_data, fraud)
-    scored_ms = round((time.perf_counter() - started) * 1000)
-    priced["scoredInMs"] = scored_ms
-    decision["adverseAction"] = action
-    risk.update(
-        {
-            "decision": decision,
-            "consent": consent,
-            "adverseAction": action,
-            "scoredInMs": scored_ms,
-            "personalizedOffer": priced,
-        }
-    )
-    return {
-        "eligibility": eligibility,
-        "risk": risk,
-        "fraud": fraud,
-        "decision": decision,
-        "altData": alt_data,
-        "creditLine": credit,
-        "personalizedOffer": priced,
-        "consent": consent,
-        "adverseAction": action,
-        "pricedInput": priced_input,
-    }
+    context = DecisionContext.from_input(input_data, financial_notes)
+    return DecisionEngine().evaluate(context, db, persist_credit_line=persist_credit_line)
 
 
 async def evaluate_application(db: Session, body: dict, idempotency_key: str | None) -> tuple[dict, bool]:
-    if idempotency_key:
-        cached = db.query(IdempotencyKey).filter(IdempotencyKey.key == idempotency_key).first()
-        if cached:
-            return cached.response, True
+    idempotency = IdempotencyService(db)
+    cached, digest = idempotency.lookup(idempotency_key, body)
+    if cached is not None:
+        return cached, True
 
     input_data = normalize_input(body)
-    if not input_data["consent_alt_data"]:
-        raise AppError(
-            "CONSENT_REQUIRED",
-            "Consent is required to use cash-flow and device-proxy signals for underwriting.",
-            400,
-        )
+    ConsentService().require_alt_data(bool(input_data.get("consent_alt_data")))
 
     financial_notes = body.get("financialNotes") or body.get("financialText")
     scored = score_application(input_data, financial_notes, db)
@@ -310,41 +190,15 @@ async def evaluate_application(db: Session, body: dict, idempotency_key: str | N
     decision = scored["decision"]
     profile = eligibility["profile"]
     priced_input = scored["pricedInput"]
+    context = scored.get("context") or DecisionContext.from_input(input_data, financial_notes)
 
     offers = []
     attempts = []
+    routing = None
     if decision["decision"] in ("approve", "review"):
-        lenders = [lender_to_dict(item) for item in db.query(Lender).filter(Lender.active.is_(True)).all()]
-        attempts = await query_lenders_in_parallel(lenders, priced_input, risk, profile)
-        raw_offers = [attempt["offer"] for attempt in attempts if attempt.get("status") == "success"]
-        offers = rank_offers(raw_offers, priced_input, profile)
-        for offer in offers:
-            offer["maxAmount"] = min(offer.get("maxAmount", priced_input["amount"]), priced_input["amount"])
-
-        if not offers and scored["altData"].get("thinFileEligible"):
-            thin_lenders = [
-                item for item in lenders if item.get("serves_thin_file") or item.get("servesThinFile")
-            ]
-            originator = thin_lenders[0] if thin_lenders else None
-            if originator:
-                priced = scored["personalizedOffer"]
-                offers = [
-                    {
-                        "lenderId": originator["id"],
-                        "lenderCode": originator["code"],
-                        "lenderName": originator["name"],
-                        "interestRate": priced["apr"],
-                        "processingFee": originator.get("processing_fee", originator.get("processingFee", 0)),
-                        "approvalProbability": 0.72,
-                        "maxAmount": priced["offeredAmount"],
-                        "rank": 1,
-                        "score": 1.0,
-                        "monthlyPayment": priced["monthlyPayment"],
-                        "routingReason": (
-                            "Starter ticket originated on alternative data after bureau-path lenders declined"
-                        ),
-                    }
-                ]
+        routing = await RoutingEngine().route(db, context, scored)
+        offers = [offer.to_dict() for offer in routing.offers]
+        attempts = routing.attempts
 
     profile_row = BorrowerProfile(
         name=input_data["name"],
@@ -374,6 +228,8 @@ async def evaluate_application(db: Session, body: dict, idempotency_key: str | N
         risk["decision"] = decision
         risk["adverseAction"] = adverse
         status = ApplicationStatus.ineligible
+        scored["decision"] = decision
+        scored["adverseAction"] = adverse
 
     application = LoanApplication(
         borrower_profile_id=profile_row.id,
@@ -382,7 +238,7 @@ async def evaluate_application(db: Session, body: dict, idempotency_key: str | N
         status=status,
         eligibility=eligibility,
         risk=risk,
-        lender_attempts=[{k: v for k, v in attempt.items() if k != "offer"} for attempt in attempts],
+        lender_attempts=attempts,
         idempotency_key=idempotency_key,
     )
     db.add(application)
@@ -461,13 +317,14 @@ async def evaluate_application(db: Session, body: dict, idempotency_key: str | N
                 "segment": profile.get("segment"),
                 "offerCount": len(offers),
                 "offeredAmount": priced_input["amount"],
+                "routingStrategy": routing.routing_strategy if routing else None,
             },
         )
     )
+    persist_decision_audit(db, application.id, context, scored, routing)
 
     response = serialize_application(application, profile_row, offer_rows)
-    if idempotency_key:
-        db.add(IdempotencyKey(key=idempotency_key, response=response))
+    idempotency.store(idempotency_key, digest, response)
     db.commit()
     from app.core.observability import record_decision
     from app.services.events import publish_decision_pipeline
@@ -491,8 +348,7 @@ def route_application(db: Session, application_id: int) -> dict:
     if not recommended:
         raise ValueError("No ranked offer available to route.")
 
-    assert_transition(application.status, ApplicationStatus.routed)
-    application.status = ApplicationStatus.routed
+    ApplicationStateMachine().transition(application, ApplicationStatus.routed)
     application.routed_lender_code = recommended.lender_code
     application.selected_offer_id = recommended.id
 
@@ -546,3 +402,116 @@ def simulate_repayment(db: Session, application_id: int) -> dict:
     db.commit()
     offers = db.query(LoanOffer).filter(LoanOffer.application_id == application.id).all()
     return {"application": serialize_application(application, profile, offers), "creditLine": credit}
+
+
+def load_application_bundle(db: Session, application_id: int) -> tuple[LoanApplication, BorrowerProfile, list[LoanOffer]]:
+    application = db.query(LoanApplication).filter(LoanApplication.id == application_id).first()
+    if not application:
+        raise AppError("NOT_FOUND", "Application not found.", 404)
+    profile = db.query(BorrowerProfile).filter(BorrowerProfile.id == application.borrower_profile_id).first()
+    offers = db.query(LoanOffer).filter(LoanOffer.application_id == application.id).all()
+    return application, profile, offers
+
+
+def get_application(db: Session, application_id: int) -> dict:
+    application, profile, offers = load_application_bundle(db, application_id)
+    return serialize_application(application, profile, offers)
+
+
+def get_routing_decision(db: Session, application_id: int) -> dict:
+    application, _profile, offers = load_application_bundle(db, application_id)
+    ranked = sorted(offers, key=lambda item: item.rank)
+    selected = next((offer for offer in ranked if offer.rank == 1), None)
+    routing_row = (
+        db.query(RoutingDecision)
+        .filter(RoutingDecision.application_id == application.id)
+        .order_by(RoutingDecision.id.desc())
+        .first()
+    )
+    attempts = application.lender_attempts or []
+    return {
+        "applicationId": application.id,
+        "status": "COMPLETED" if ranked or application.status in {ApplicationStatus.ineligible, ApplicationStatus.rejected} else "PENDING",
+        "selectedLender": application.routed_lender_code or (selected.lender_code if selected else None),
+        "selectedOfferId": application.selected_offer_id or (selected.id if selected else None),
+        "strategy": routing_row.strategy if routing_row else "balanced",
+        "strategyVersion": routing_row.strategy_version if routing_row else None,
+        "policyVersion": routing_row.policy_version if routing_row else None,
+        "candidates": [
+            {
+                "lenderCode": attempt.get("lenderCode"),
+                "status": attempt.get("status"),
+                "eligible": attempt.get("status") == "success",
+                "latencyMs": attempt.get("latencyMs"),
+                "message": attempt.get("message"),
+            }
+            for attempt in attempts
+        ],
+        "offers": [
+            {
+                "id": offer.id,
+                "lenderCode": offer.lender_code,
+                "score": offer.score,
+                "rank": offer.rank,
+                "interestRate": offer.interest_rate,
+                "approvalProbability": offer.approval_probability,
+                "routingReason": offer.routing_reason,
+            }
+            for offer in ranked
+        ],
+    }
+
+
+def explain_decision(db: Session, application_id: int) -> dict:
+    application, _profile, offers = load_application_bundle(db, application_id)
+    risk = application.risk or {}
+    decision = risk.get("decision") or {}
+    audit = (
+        db.query(DecisionAudit)
+        .filter(DecisionAudit.application_id == application.id)
+        .order_by(DecisionAudit.id.desc())
+        .first()
+    )
+    ranked = sorted(offers, key=lambda item: item.rank)
+    selected = next((offer for offer in ranked if offer.rank == 1), None)
+    lender_explanations = []
+    for attempt in application.lender_attempts or []:
+        offer = next((item for item in ranked if item.lender_code == attempt.get("lenderCode")), None)
+        reasons = []
+        if attempt.get("message"):
+            reasons.append(attempt["message"])
+        if offer and offer.routing_reason:
+            reasons.append(offer.routing_reason)
+        lender_explanations.append(
+            {
+                "lenderCode": attempt.get("lenderCode"),
+                "eligible": attempt.get("status") == "success",
+                "rejectionReasons": reasons if attempt.get("status") != "success" else [],
+                "score": offer.score if offer else None,
+                "latencyMs": attempt.get("latencyMs"),
+                "status": attempt.get("status"),
+            }
+        )
+    final_reasons = list(decision.get("reasons") or [])
+    if selected:
+        final_reasons = final_reasons + [
+            f"Eligible for requested amount",
+            selected.routing_reason or "Highest weighted offer score",
+        ]
+    return {
+        "applicationId": application.id,
+        "decision": decision.get("decision"),
+        "status": application.status.value if hasattr(application.status, "value") else str(application.status),
+        "reasons": final_reasons,
+        "explainability": decision.get("explainability") or (audit.explainability if audit else {}),
+        "risk": {
+            "band": risk.get("riskBand"),
+            "defaultProbability": risk.get("defaultProbability"),
+        },
+        "selectedLender": selected.lender_code if selected else None,
+        "lenders": lender_explanations,
+        "modelVersion": audit.model_version if audit else risk.get("modelSource"),
+        "policyVersion": audit.policy_version if audit else None,
+        "routingVersion": audit.routing_version if audit else None,
+        "featureSnapshot": audit.feature_snapshot if audit else None,
+    }

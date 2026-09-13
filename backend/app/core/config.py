@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5000,http://127.0.0.1:5000"
     lender_timeout_ms: int = 3000
     lender_max_retries: int = 3
+    lender_max_concurrency: int = 10
+    lender_retry_base_delay_ms: int = 40
+    lender_retry_max_delay_ms: int = 400
+    routing_strategy: str = "balanced"
     stacking_enabled: bool = True
     stacking_limit: int = 20
     ml_predict_script: str = "ml/predict.py"

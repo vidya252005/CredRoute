@@ -229,7 +229,7 @@ function App() {
       <MetricsFooter metrics={metrics} />
 
       <p className="demo-disclaimer">
-        CredRoute is a portfolio demo. Mock lenders only. Synthetic data. No real credit decisions.
+        Portfolio demo. Mock lenders. Synthetic data. No real credit decisions.
       </p>
     </div>
   );

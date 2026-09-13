@@ -1,3 +1,4 @@
+import CreditCard from "./CreditCard.jsx";
 import { money, percent } from "../lib/format.js";
 import SegmentBadge from "./SegmentBadge.jsx";
 import StatusBadge from "./StatusBadge.jsx";
@@ -7,18 +8,11 @@ export default function ResultPanel({ result, loading, busy, onRoute, onRepay })
     return (
       <section className="panel panel--result panel--empty" aria-live="polite">
         <header className="panel__header">
-          <p className="panel__eyebrow">Decision ledger</p>
-          <h2>Your routing outcome appears here</h2>
+          <h2>Your card appears after you apply</h2>
         </header>
         <p className="panel__lede">
-          Submit a loan request to see eligibility checks, default and fraud risk scores,
-          lender mesh responses, and ranked offers.
+          Submit a request to see the decision, FOIR, lender replies, and ranked offers.
         </p>
-        <ul className="ledger-hints">
-          <li>Default and fraud probabilities from the credit risk engine</li>
-          <li>Per-lender approve/ineligible/failed responses with reasons</li>
-          <li>Offers ranked by profile fit, not rate alone</li>
-        </ul>
       </section>
     );
   }
@@ -30,11 +24,19 @@ export default function ResultPanel({ result, loading, busy, onRoute, onRepay })
     <section className="panel panel--result" aria-live="polite">
       <header className="panel__header panel__header--split">
         <div>
-          <p className="panel__eyebrow">Decision ledger</p>
           <h2>{result.applicant?.name || "Applicant"}</h2>
         </div>
         <StatusBadge status={result.status} />
       </header>
+
+      {result.personalizedOffer && (
+        <CreditCard
+          amount={money(result.personalizedOffer.offeredAmount)}
+          name={result.applicant?.name}
+          meta={`${result.personalizedOffer.tenureMonths} months at ${result.personalizedOffer.apr}% APR`}
+          footer={`EMI ${money(result.personalizedOffer.monthlyPayment)}`}
+        />
+      )}
 
       <div className="ledger-grid">
         {result.decision && (
@@ -91,18 +93,6 @@ export default function ResultPanel({ result, loading, busy, onRoute, onRepay })
               ` · Text stress ${Math.round(result.risk.finbertSignal.stressScore * 100)}%`}
           </p>
         </article>
-
-        {result.personalizedOffer && (
-          <article className="ledger-card ledger-card--offer">
-            <p className="ledger-card__label">Personalized offer</p>
-            <p className="ledger-card__value mono">{money(result.personalizedOffer.offeredAmount)}</p>
-            <p className="ledger-card__detail">
-              {result.personalizedOffer.apr}% APR · {result.personalizedOffer.tenureMonths} mo · EMI{" "}
-              {money(result.personalizedOffer.monthlyPayment)}
-              {result.scoredInMs != null ? ` · scored in ${result.scoredInMs}ms` : ""}
-            </p>
-          </article>
-        )}
 
         {result.altData && (
           <article className="ledger-card">

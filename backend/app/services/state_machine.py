@@ -24,3 +24,10 @@ def can_transition(current: ApplicationStatus, target: ApplicationStatus) -> boo
 def assert_transition(current: ApplicationStatus, target: ApplicationStatus) -> None:
     if not can_transition(current, target):
         raise ValueError(f"Invalid transition from {current.value} to {target.value}")
+
+
+class ApplicationStateMachine:
+    def transition(self, application, next_state: ApplicationStatus):
+        assert_transition(application.status, next_state)
+        application.status = next_state
+        return application

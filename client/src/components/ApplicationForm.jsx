@@ -12,8 +12,7 @@ export default function ApplicationForm({
   return (
     <section className="panel panel--form">
       <header className="panel__header">
-        <p className="panel__eyebrow">Loan request</p>
-        <h2>Applicant intake</h2>
+        <h2>Loan request</h2>
       </header>
 
       <div className="preset-row">
@@ -183,7 +182,7 @@ export default function ApplicationForm({
               ? "Routing application…"
               : busy === "repaying"
                 ? "Recording repayment…"
-                : "Evaluate and match lenders"}
+                : "Get decision"}
         </button>
       </form>
     </section>

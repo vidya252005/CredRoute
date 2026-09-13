@@ -4,7 +4,7 @@ export default function ErrorBanner({ message, onDismiss }) {
   return (
     <div className="error-banner" role="alert">
       <div>
-        <p className="error-banner__title">Something blocked this request</p>
+        <p className="error-banner__title">This request failed</p>
         <p className="error-banner__body">{message}</p>
       </div>
       {onDismiss && (
