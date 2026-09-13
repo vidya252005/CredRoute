@@ -1,6 +1,12 @@
 import os
 from pathlib import Path
 
+os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-not-for-production-use-only")
+os.environ.setdefault("PAN_HMAC_SECRET", "test-pan-hmac-secret-not-for-production")
+os.environ.setdefault("ADMIN_EMAIL", "admin@credroute.test")
+os.environ.setdefault("ADMIN_PASSWORD", "test-admin-local-only")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

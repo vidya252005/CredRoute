@@ -7,6 +7,7 @@ import time
 from app.core.config import settings
 from app.domain.context import DecisionContext
 from app.domain.enums import LenderAttemptStatus
+from app.resilience.errors import ProviderTimeout
 from app.domain.lender import LenderEligibilityRequest, LenderRecord, OfferRequest
 from app.domain.results import LenderDecisionExplanation, LenderEvaluation
 from app.resilience.bulkhead import lender_semaphore
@@ -14,6 +15,17 @@ from app.resilience.circuit_breaker import CircuitBreaker, get_circuit_state
 from app.resilience.retry import RetryPolicy
 from app.resilience.timeout import with_timeout
 from app.routing.factory import LenderAdapterFactory
+
+
+def classify_provider_failure(error: BaseException | None) -> tuple[LenderAttemptStatus, LenderAttemptStatus]:
+    """Timeouts after a send are UNKNOWN, not failed. Programming errors are not retryable here."""
+    if isinstance(error, (TimeoutError, ProviderTimeout)) or (
+        error is not None and "timeout" in str(error).lower()
+    ):
+        return LenderAttemptStatus.UNKNOWN, LenderAttemptStatus.FAILED_TIMEOUT
+    if error is not None:
+        return LenderAttemptStatus.FAILED, LenderAttemptStatus.FAILED_PROVIDER
+    return LenderAttemptStatus.FAILED, LenderAttemptStatus.FAILED
 
 
 class LenderQueryCoordinator:
@@ -134,17 +146,10 @@ class LenderQueryCoordinator:
 
         breaker.record_failure()
         message = str(last_error or "lender unavailable")
-        status = (
-            LenderAttemptStatus.FAILED_TIMEOUT
-            if isinstance(last_error, TimeoutError) or "timeout" in message.lower()
-            else LenderAttemptStatus.FAILED_PROVIDER
-            if last_error
-            else LenderAttemptStatus.FAILED
-        )
-        # Keep the persisted attempt status as "failed" so existing metrics stay compatible.
+        persisted, detail = classify_provider_failure(last_error)
         return LenderEvaluation(
             lender_code=lender.code,
-            status=LenderAttemptStatus.FAILED,
+            status=persisted,
             latency_ms=int((time.time() - started) * 1000),
             message=message,
             circuit=get_circuit_state(lender.code).__dict__,
@@ -153,6 +158,6 @@ class LenderQueryCoordinator:
                 eligible=False,
                 rejection_reasons=[message],
                 latency_ms=int((time.time() - started) * 1000),
-                status=status.value,
+                status=detail.value,
             ),
         )

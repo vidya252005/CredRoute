@@ -50,7 +50,7 @@ export default function AuthPanel({ onAuthenticated }) {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="admin@credroute.demo"
+          placeholder="admin email from ADMIN_EMAIL"
           required
         />
       </label>

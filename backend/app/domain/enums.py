@@ -55,6 +55,7 @@ class LenderAttemptStatus(str, Enum):
     FAILED_TIMEOUT = "failed_timeout"
     FAILED_PROVIDER = "failed_provider"
     CIRCUIT_OPEN = "circuit_open"
+    UNKNOWN = "unknown"
 
 
 class RoutingStrategyName(str, Enum):

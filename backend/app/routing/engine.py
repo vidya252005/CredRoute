@@ -10,6 +10,7 @@ from app.domain.lender import LenderPolicy, LenderRecord
 from app.domain.results import LenderOffer, RoutingResult
 from app.models.entities import Lender
 from app.routing.candidate import CandidateSelector
+from app.services.lender_policies import lender_to_routing_dict
 from app.routing.coordinator import LenderQueryCoordinator
 from app.routing.eligibility import LenderEligibilityEngine
 from app.routing.strategies import RoutingStrategy, resolve_strategy
@@ -37,7 +38,7 @@ class RoutingEngine:
         rows = db.query(Lender).filter(Lender.active.is_(True)).all()
         records = []
         for row in rows:
-            raw = lender_row_to_dict(row)
+            raw = lender_to_routing_dict(db, row)
             records.append(
                 LenderRecord(
                     id=row.id,
@@ -55,9 +56,8 @@ class RoutingEngine:
         profile = scored["eligibility"]["profile"]
         risk = scored["risk"]
         priced_input = scored["pricedInput"]
-        priced_context = DecisionContext.from_input(priced_input, context.financial_notes)
-        priced_context.eligibility_result = context.eligibility_result
-        priced_context.risk_result = context.risk_result
+        routing_ctx = context.routing_context(priced_input, profile, risk)
+        priced_context = routing_ctx.to_decision_context()
 
         lenders = self.load_lenders(db)
         candidates = self.candidate_selector.select(lenders, priced_context)
@@ -97,7 +97,7 @@ class RoutingEngine:
             candidates=evaluations,
             offers=offers,
             routing_strategy=self.strategy.name,
-            routing_version="1.0.0",
+            routing_version=settings.routing_policy_version,
             explanation=explanations,
             attempts=attempts,
         )
@@ -109,6 +109,9 @@ class RoutingEngine:
         if not originator:
             return []
         priced = scored["personalizedOffer"]
+        alt_score = float(scored.get("altData", {}).get("altDataScore") or 0.55)
+        approval = round(min(0.85, max(0.40, 0.45 + alt_score * 0.4)), 3)
+        fit = round(min(0.95, max(0.45, 0.50 + alt_score * 0.4)), 3)
         return [
             {
                 "lenderId": originator.id,
@@ -116,16 +119,18 @@ class RoutingEngine:
                 "lenderName": originator.name,
                 "interestRate": priced["apr"],
                 "processingFee": originator.policy.processing_fee,
-                "approvalProbability": 0.72,
+                "approvalProbability": approval,
                 "maxAmount": priced["offeredAmount"],
                 "successRate": originator.policy.success_rate,
                 "journeyScore": originator.policy.journey_score,
-                "profileFit": 1.0,
+                "profileFit": fit,
                 "rank": 1,
-                "score": 1.0,
+                "score": fit,
                 "monthlyPayment": priced["monthlyPayment"],
+                "simulatedOffer": True,
                 "routingReason": (
-                    "Starter ticket originated on alternative data after bureau-path lenders declined"
+                    "Simulated starter-ticket fallback after bureau-path lenders declined; "
+                    "not a calibrated approval probability"
                 ),
             }
         ]

@@ -1,5 +1,6 @@
 from sqlalchemy import inspect, text
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.data.lenders import LENDER_SEED
 from app.db import session as db_session
@@ -23,6 +24,28 @@ def _ensure_schema() -> None:
     engine = db_session.engine
     _add_column_if_missing(engine, "idempotency_keys", "request_hash", "request_hash VARCHAR(64)")
     _add_column_if_missing(engine, "idempotency_keys", "status", "status VARCHAR(30)")
+    _add_column_if_missing(engine, "idempotency_keys", "expires_at", "expires_at TIMESTAMP")
+    _add_column_if_missing(engine, "borrower_profiles", "pan_hash", "pan_hash VARCHAR(64)")
+    _add_column_if_missing(engine, "borrower_credit_lines", "pan_hash", "pan_hash VARCHAR(64)")
+    _add_column_if_missing(engine, "borrower_credit_lines", "version", "version INTEGER DEFAULT 0")
+    _add_column_if_missing(engine, "consent_records", "pan_hash", "pan_hash VARCHAR(64)")
+    _add_column_if_missing(engine, "lenders", "policy_version", "policy_version INTEGER DEFAULT 1")
+
+
+def _seed_admin(db) -> None:
+    email = (settings.admin_email or "").strip().lower()
+    password = settings.admin_password
+    if not email or not password:
+        return
+    if db.query(User).filter(User.email == email).first():
+        return
+    db.add(
+        User(
+            email=email,
+            hashed_password=hash_password(password),
+            role=UserRole.admin,
+        )
+    )
 
 
 def init_db() -> None:
@@ -39,6 +62,7 @@ def init_db() -> None:
                         category=item["category"],
                         active=True,
                         policy=item,
+                        policy_version=1,
                     )
                 )
         else:
@@ -52,18 +76,17 @@ def init_db() -> None:
                             category=item["category"],
                             active=True,
                             policy=item,
+                            policy_version=1,
                         )
                     )
 
-        admin_email = "admin@credroute.demo"
-        if not db.query(User).filter(User.email == admin_email).first():
-            db.add(
-                User(
-                    email=admin_email,
-                    hashed_password=hash_password("changeme123"),
-                    role=UserRole.admin,
-                )
-            )
+        from app.services.lender_policies import sync_seed_policy
+
+        db.flush()
+        for lender in db.query(Lender).all():
+            sync_seed_policy(db, lender)
+
+        _seed_admin(db)
         db.commit()
     finally:
         db.close()

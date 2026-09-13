@@ -56,7 +56,7 @@ export const initializeRiskModel = async () => {
 
 export const predictWithModel = (input) =>
   new Promise((resolve, reject) => {
-    if (!modelAvailable && !fs.existsSync(modelPath)) {
+    if (!modelAvailable) {
       resolve(null);
       return;
     }
@@ -64,6 +64,10 @@ export const predictWithModel = (input) =>
     const child = spawn("python3", [predictScript], { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("ML predictor timed out"));
+    }, 15000);
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -71,8 +75,12 @@ export const predictWithModel = (input) =>
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", (error) => reject(error));
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (code !== 0) {
         reject(new Error(stderr || `ML predictor exited with code ${code}`));
         return;

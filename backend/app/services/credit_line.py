@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.identity import SensitiveIdentity
 from app.models.entities import BorrowerCreditLine
 from app.services.underwriting_rules import load_underwriting_rules
 
@@ -29,10 +30,8 @@ def stepped_limit(base: int, on_time: int, monthly_income: int) -> int:
 
 
 def serialize_line(line: BorrowerCreditLine) -> dict:
-    from app.core.privacy import mask_pan
-
     return {
-        "pan": mask_pan(line.pan),
+        "pan": line.pan,
         "currentLimit": line.current_limit,
         "nextLimit": line.next_limit,
         "onTimeRepayments": line.on_time_repayments,
@@ -48,18 +47,25 @@ def get_or_create_credit_line(
     monthly_income: int,
     alt_data_score: float,
 ) -> BorrowerCreditLine:
-    line = db.query(BorrowerCreditLine).filter(BorrowerCreditLine.pan == pan).first()
+    identity = SensitiveIdentity(pan)
+    line = (
+        db.query(BorrowerCreditLine)
+        .filter(BorrowerCreditLine.pan_hash == identity.pan_hash)
+        .first()
+    )
     if line:
         return line
     base = starter_limit(monthly_income, alt_data_score)
     line = BorrowerCreditLine(
-        pan=pan,
+        pan=identity.pan_masked,
+        pan_hash=identity.pan_hash,
         current_limit=base,
         next_limit=stepped_limit(base, 1, monthly_income),
         starter_limit=base,
         on_time_repayments=0,
         originated_count=0,
         last_originated_amount=0,
+        version=0,
     )
     try:
         with db.begin_nested():
@@ -67,7 +73,11 @@ def get_or_create_credit_line(
             db.flush()
         return line
     except IntegrityError:
-        existing = db.query(BorrowerCreditLine).filter(BorrowerCreditLine.pan == pan).first()
+        existing = (
+            db.query(BorrowerCreditLine)
+            .filter(BorrowerCreditLine.pan_hash == identity.pan_hash)
+            .first()
+        )
         if existing:
             return existing
         raise
@@ -76,6 +86,7 @@ def get_or_create_credit_line(
 def record_origination(line: BorrowerCreditLine, amount: int) -> None:
     line.originated_count += 1
     line.last_originated_amount = amount
+    line.version = (line.version or 0) + 1
     line.updated_at = datetime.now(UTC)
 
 
@@ -83,5 +94,6 @@ def record_on_time_repayment(line: BorrowerCreditLine, monthly_income: int) -> d
     line.on_time_repayments += 1
     line.current_limit = stepped_limit(line.starter_limit, line.on_time_repayments, monthly_income)
     line.next_limit = stepped_limit(line.starter_limit, line.on_time_repayments + 1, monthly_income)
+    line.version = (line.version or 0) + 1
     line.updated_at = datetime.now(UTC)
     return serialize_line(line)

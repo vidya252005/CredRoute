@@ -6,6 +6,8 @@ import asyncio
 import random
 from dataclasses import dataclass, field
 
+from app.resilience.errors import ProviderRateLimited, ProviderTimeout, ProviderUnavailable
+
 
 @dataclass(slots=True)
 class RetryPolicy:
@@ -13,7 +15,14 @@ class RetryPolicy:
     base_delay_ms: int = 40
     max_delay_ms: int = 400
     retryable_exceptions: tuple[type[BaseException], ...] = field(
-        default_factory=lambda: (Exception,)
+        default_factory=lambda: (
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            ProviderTimeout,
+            ProviderUnavailable,
+            ProviderRateLimited,
+        )
     )
 
     def delay_seconds(self, attempt: int) -> float:

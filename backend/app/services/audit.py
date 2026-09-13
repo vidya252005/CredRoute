@@ -16,6 +16,7 @@ from app.models.entities import (
     RoutingCandidate,
     RoutingDecision,
 )
+from app.services.application_service import redact_pii
 from app.services.underwriting_rules import load_underwriting_rules
 
 
@@ -57,7 +58,7 @@ def persist_decision_audit(
         model_version=(risk.model_source if risk else None) or "unknown",
         policy_version=str(rules.get("version") or "1.0.0"),
         routing_version=routing.routing_version if routing else None,
-        feature_snapshot=(risk.engineered_features if risk else None) or {},
+        feature_snapshot=redact_pii((risk.engineered_features if risk else None) or {}),
         lender_results=routing.attempts if routing else [],
         final_decision=str(decision.get("decision") or "reject"),
         reasons=list(decision.get("reasons") or []),

@@ -44,6 +44,7 @@ class BorrowerProfile(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(120))
     pan: Mapped[str] = mapped_column(String(10), index=True)
+    pan_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     age: Mapped[int] = mapped_column(Integer)
     income_type: Mapped[str] = mapped_column(String(32))
     monthly_income: Mapped[int] = mapped_column(Integer)
@@ -63,7 +64,35 @@ class Lender(Base):
     category: Mapped[str] = mapped_column(String(32))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     policy: Mapped[dict] = mapped_column(JSON)
+    policy_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    policy_versions: Mapped[list["LenderPolicyVersion"]] = relationship(back_populates="lender")
+
+
+class LenderPolicyVersion(Base):
+    __tablename__ = "lender_policy_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lender_id: Mapped[int] = mapped_column(ForeignKey("lenders.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT", index=True)
+    min_income: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_credit_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_foir: Mapped[float | None] = mapped_column(Float, nullable=True)
+    base_interest_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    processing_fee: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    success_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    journey_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    serves_prime: Mapped[bool] = mapped_column(Boolean, default=False)
+    serves_near_prime: Mapped[bool] = mapped_column(Boolean, default=False)
+    serves_thin_file: Mapped[bool] = mapped_column(Boolean, default=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    lender: Mapped["Lender"] = relationship(back_populates="policy_versions")
 
 
 class LoanApplication(Base):
@@ -82,7 +111,9 @@ class LoanApplication(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    borrower_profile: Mapped["BorrowerProfile"] = relationship()
     offers: Mapped[list["LoanOffer"]] = relationship(back_populates="application")
+    attempt_records: Mapped[list["LenderAttemptRecord"]] = relationship()
 
 
 class LoanOffer(Base):
@@ -123,6 +154,7 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     response: Mapped[dict] = mapped_column(JSON)
     status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -130,13 +162,15 @@ class BorrowerCreditLine(Base):
     __tablename__ = "borrower_credit_lines"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    pan: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    pan: Mapped[str] = mapped_column(String(10), index=True)
+    pan_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     current_limit: Mapped[int] = mapped_column(Integer)
     next_limit: Mapped[int] = mapped_column(Integer)
     starter_limit: Mapped[int] = mapped_column(Integer)
     on_time_repayments: Mapped[int] = mapped_column(Integer, default=0)
     originated_count: Mapped[int] = mapped_column(Integer, default=0)
     last_originated_amount: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -147,6 +181,7 @@ class ConsentRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("loan_applications.id"), index=True)
     pan: Mapped[str] = mapped_column(String(10), index=True)
+    pan_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     granted: Mapped[bool] = mapped_column(Boolean, default=True)
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -230,4 +265,14 @@ class RoutingCandidate(Base):
     rejection_reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

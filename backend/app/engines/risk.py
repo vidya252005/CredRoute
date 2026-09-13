@@ -48,10 +48,12 @@ class CachedRiskEngine(RiskEngine):
     def score(self, context: DecisionContext) -> RiskResult:
         import hashlib
 
+        from app.core.identity import pan_lookup_hash
+
         input_data = context.to_input_data()
         notes_token = hashlib.sha256((context.financial_notes or "").encode("utf-8")).hexdigest()[:16]
         cache_key = (
-            f"risk:{input_data.get('pan')}:{input_data.get('amount')}:{input_data.get('tenure_months')}:"
+            f"risk:{pan_lookup_hash(str(input_data.get('pan') or ''))}:{input_data.get('amount')}:{input_data.get('tenure_months')}:"
             f"{input_data.get('monthly_income')}:{input_data.get('cibil_score')}:"
             f"{input_data.get('existing_emis')}:{input_data.get('income_type')}:"
             f"{input_data.get('bank_statement_avg_balance')}:{input_data.get('city_tier')}:"

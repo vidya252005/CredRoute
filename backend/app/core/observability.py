@@ -10,6 +10,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.request_context import bind_request_id, current_request_id
+
 REQUESTS = Counter(
     "credroute_http_requests_total",
     "HTTP requests",
@@ -50,6 +52,7 @@ def record_decision(decision: str) -> None:
 
 class MetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        request_id = bind_request_id(request.headers.get("X-Request-Id") or request.headers.get("X-Request-ID"))
         started = time.perf_counter()
         path = request.url.path
         try:
@@ -57,14 +60,21 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         except Exception:
             REQUESTS.labels(request.method, path, "500").inc()
             REQUEST_SECONDS.labels(request.method, path).observe(time.perf_counter() - started)
-            _logger.exception("request_failed method=%s path=%s", request.method, path)
+            _logger.exception(
+                "request_failed request_id=%s method=%s path=%s",
+                current_request_id(),
+                request.method,
+                path,
+            )
             raise
         elapsed = time.perf_counter() - started
         REQUESTS.labels(request.method, path, str(response.status_code)).inc()
         REQUEST_SECONDS.labels(request.method, path).observe(elapsed)
+        response.headers["X-Request-Id"] = request_id
         if not path.startswith("/api/metrics"):
             _logger.info(
-                "http_request method=%s path=%s status=%s latency_ms=%.1f",
+                "http_request request_id=%s method=%s path=%s status=%s latency_ms=%.1f",
+                request_id,
                 request.method,
                 path,
                 response.status_code,

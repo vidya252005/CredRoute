@@ -135,8 +135,10 @@ async def query_lender(provider: MockLenderProvider, lender: dict, input_data: d
             return {"status": "success", "lenderCode": lender["code"], "latencyMs": latency_ms, "offer": offer}
         except Exception as error:  # noqa: BLE001
             last_error = error
-            if attempt < retry.max_attempts:
+            if attempt < retry.max_attempts and retry.is_retryable(error):
                 await retry.sleep(attempt)
+                continue
+            break
     record_failure(lender["code"])
     raise last_error or RuntimeError("lender unavailable")
 

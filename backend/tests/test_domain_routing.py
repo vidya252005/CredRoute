@@ -68,6 +68,13 @@ def _lender(**overrides) -> LenderRecord:
 def test_decision_context_from_input():
     context = _context()
     assert context.borrower.pan == "ABCDE1234F"
+    assert context.application_input is not None
+    assert context.application_input.identity.pan_masked == "ABCXX1234X"
+    assert context.snapshot().risk is None
+    priced = context.with_priced_amount(150000, 12)
+    routing = context.routing_context(priced, {"segment": "prime"}, {"defaultProbability": 0.1})
+    assert routing.application.amount == 150000
+    assert routing.decision.eligibility is None
     assert context.credit_profile.cibil_score == 780
     assert context.financial_profile.monthly_income == 85000
     assert context.to_input_data()["amount"] == 300000
@@ -130,6 +137,9 @@ def test_retry_policy_delay_is_bounded():
 
 
 def test_circuit_breaker_class_delegates():
+    from app.core.cache import cache_delete
+
+    cache_delete("credroute:cb:TEST-LENDER")
     _states.pop("TEST-LENDER", None)
     breaker = CircuitBreaker("TEST-LENDER", failure_threshold=2, recovery_timeout_ms=50)
     assert breaker.allow_request() is True

@@ -41,16 +41,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci
-      - run: npm test
-      - run: npm run build
       - run: pip install -r backend/requirements.txt
       - run: pip install -r ml/requirements.txt
+      - run: npm test
+      - run: npm run build
       - run: pytest backend/tests -q --ignore=backend/tests/load --cov=app --cov-report=term-missing
         env:
+          ENVIRONMENT: development
           DATABASE_URL: postgresql+psycopg2://credroute:credroute@127.0.0.1:5432/credroute
           PYTHONPATH: backend
+          JWT_SECRET: ci-test-jwt-secret-not-for-production-use
+          PAN_HMAC_SECRET: ci-test-pan-hmac-secret-not-for-production
+          REDIS_URL: redis://127.0.0.1:6379/0
       - run: python3 backend/benchmarks/run_proof.py --mode quick
         env:
+          ENVIRONMENT: development
           DATABASE_URL: postgresql+psycopg2://credroute:credroute@127.0.0.1:5432/credroute
           PYTHONPATH: backend
           REDIS_URL: redis://127.0.0.1:6379/0
+          JWT_SECRET: ci-test-jwt-secret-not-for-production-use
+          PAN_HMAC_SECRET: ci-test-pan-hmac-secret-not-for-production

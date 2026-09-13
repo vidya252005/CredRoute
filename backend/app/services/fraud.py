@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import BorrowerProfile, LoanApplication
-from app.services.profile import normalize_pan
+from app.core.identity import SensitiveIdentity
 from app.services.underwriting_rules import get_fraud_rules
 
 
@@ -51,7 +51,7 @@ def score_fraud_signals(input_data: dict, risk: dict, recent_pans: int = 0) -> d
 
 def evaluate_fraud(db: Session, input_data: dict, risk: dict) -> dict:
     rules = get_fraud_rules()
-    pan = normalize_pan(input_data.get("pan", ""))
+    identity = SensitiveIdentity(input_data.get("pan", ""))
     window = timedelta(hours=rules["stackingWindowHours"])
     since = datetime.now(UTC) - window
 
@@ -60,7 +60,7 @@ def evaluate_fraud(db: Session, input_data: dict, risk: dict) -> dict:
         recent_pans = (
             db.query(LoanApplication)
             .join(BorrowerProfile, LoanApplication.borrower_profile_id == BorrowerProfile.id)
-            .filter(BorrowerProfile.pan == pan, LoanApplication.created_at >= since)
+            .filter(BorrowerProfile.pan_hash == identity.pan_hash, LoanApplication.created_at >= since)
             .count()
         )
 

@@ -56,11 +56,15 @@ class DecisionEngine:
         context.risk_result = self.risk_engine.score(context)
         context.affordability = self.affordability_engine.calculate(context)
 
-        existing_line = (
-            db.query(BorrowerCreditLine).filter(BorrowerCreditLine.pan == input_data["pan"]).first()
-            if db is not None
-            else None
-        )
+        existing_line = None
+        if db is not None:
+            from app.core.identity import SensitiveIdentity
+
+            existing_line = (
+                db.query(BorrowerCreditLine)
+                .filter(BorrowerCreditLine.pan_hash == SensitiveIdentity(input_data["pan"]).pan_hash)
+                .first()
+            )
         credit_preview = (
             serialize_line(existing_line)
             if existing_line
@@ -120,9 +124,7 @@ class DecisionEngine:
             raw=eligibility_raw,
         )
 
-        # Fraud uses the priced ticket, matching the previous pipeline.
-        priced_context = DecisionContext.from_input(priced_input, context.financial_notes)
-        priced_context.risk_result = context.risk_result
+        priced_context = context.with_priced_ticket(priced_input)
         context.fraud_result = self.fraud_engine.evaluate(priced_context, db)
 
         risk = {

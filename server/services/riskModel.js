@@ -30,7 +30,12 @@ const heuristicRisk = (input) => {
 };
 
 export const calculateRisk = async (input) => {
-  const defaultProbability = await predictWithModel(input);
+  let defaultProbability = null;
+  try {
+    defaultProbability = await predictWithModel(input);
+  } catch {
+    defaultProbability = null;
+  }
 
   if (defaultProbability === null) {
     return heuristicRisk(input);
